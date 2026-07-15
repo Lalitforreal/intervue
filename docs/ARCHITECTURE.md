@@ -149,6 +149,8 @@ the session can be reconstructed by replaying events up to that sequence number.
 Two events can occur within the same millisecond. Timestamp alone cannot
 guarantee strict ordering. Sequence number is an auto-incrementing integer
 scoped to the session — it guarantees you always know which event came first.
+Note - sequence_number is NOT assigned by the client. It is assigned by the 
+server inside a database transaction
 
 ---
 
