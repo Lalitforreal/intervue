@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server"
+    "start": "node dist/server",
+    "session-test" : "tsx src/tests/session.test.ts"
   },
   "repository": {
     "type": "git",
