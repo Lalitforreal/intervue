@@ -1,0 +1,82 @@
+<!-- to check if two windows are syncing and socket are working -->
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Intervue Test</title>
+</head>
+<body>
+  <h2>Intervue Test Client</h2>
+  
+  <button onclick="createSession()">Create Session</button>
+  
+  <br><br>
+  
+  <input id="sessionInput" placeholder="Paste session ID to join..." style="width:300px"/>
+  <button onclick="joinSession()">Join Session</button>
+  
+  <br><br>
+  
+  <textarea id="editor" rows="10" cols="50" placeholder="Type code here..." oninput="onEdit()"></textarea>
+  
+  <br>
+  <div id="log"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io("http://localhost:3000");
+    let currentSessionId = null;
+
+    socket.on("connect", () => {
+      log("connected: " + socket.id);
+    });
+
+    socket.on("session_created", (session) => {
+      currentSessionId = session.id;
+      log("session created: " + session.id);
+    });
+
+    socket.on("session_joined", (session) => {
+      currentSessionId = session.id;
+      log("session joined: " + session.id);
+    });
+
+    socket.on("code_updated", (data) => {
+      log("code updated: " + data.content);
+      document.getElementById("editor").value = data.content;
+    });
+
+    socket.on("cursor_updated", (data) => {
+      log("cursor: line " + data.line + " char " + data.character);
+    });
+
+    socket.on("error", (msg) => {
+      log("ERROR: " + msg);
+    });
+
+    function createSession() {
+      socket.emit("create_session");
+    }
+
+    function joinSession() {
+      const sessionId = document.getElementById("sessionInput").value;
+      socket.emit("join_session", sessionId);
+    }
+
+    function onEdit() {
+      if (!currentSessionId) return;
+      const content = document.getElementById("editor").value;
+      socket.emit("code_change", currentSessionId, {
+        content: content,
+        cursorPosition: { line: 0, character: 0 },
+        language: "javascript"
+      });
+    }
+
+    function log(msg) {
+      const div = document.getElementById("log");
+      div.innerHTML = "<p>" + msg + "</p>" + div.innerHTML;
+    }
+  </script>
+</body>
+</html>
