@@ -10,7 +10,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server",
-    "session-test" : "tsx src/tests/session.test.ts"
+    "session-test": "tsx src/tests/session.test.ts"
   },
   "repository": {
     "type": "git",
@@ -32,6 +32,8 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "http": "^0.0.1-security",
+    "socket.io": "^4.8.3"
   }
 }
