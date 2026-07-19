@@ -8,7 +8,7 @@ import { registerSocketHandlers } from "./sockets/handlers.js";
 import { SessionManager } from "./session/SessionManager.js";
 import path from "path";
 import { fileURLToPath } from "url";
-
+import {socketAuth} from "./middleware/socketAuth.js"
 
 dotenv.config();
 const app = express();
@@ -18,6 +18,8 @@ const io = new Server< ClientToServerEvents,ServerToClientEvents,InterServerEven
 app.use(express.json());
 app.use(express.urlencoded({extended : false}));
 
+
+io.use(socketAuth);
 const sessionManager = new SessionManager();
 registerSocketHandlers(io,sessionManager);
 
