@@ -24,7 +24,19 @@
 
 <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io("http://localhost:3000");
+
+    //jwt test 
+    //if no token -> should run the catch block of middleware
+    // const socket = io("http://localhost:3000");  
+
+    //with token -> accept
+    const socket = io("http://localhost:3000", {
+      withCredentials: true,
+      extraHeaders: {
+        cookie: "token=PASTE_TOKEN_HERE"
+      }
+    });
+
     let currentSessionId = null;
 
     socket.on("connect", () => {
