@@ -4,27 +4,34 @@ import { type ClientToServerEvents, type ServerToClientEvents, type InterServerE
 import { SessionManager } from "../session/SessionManager.js";
 import crypto from "crypto";
 import { SessionStatus, type Session } from "../types/session.js";
+import { requireRole } from "../middleware/roleGuard.js";
 
 export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerToClientEvents,InterServerEvents,SocketData >,sessionManager : SessionManager){
     console.log("io-socket-connected");
     io.on("connection", (socket)=>{
         socket.on("create_session", ()=>{
-            const interviewerId = crypto.randomUUID();
-            const session = sessionManager.createSession(interviewerId);
+            //role guard
+            if (!requireRole(socket, Role.INTERVIEWER)) {
+                socket.emit("error", "Unauthorized");
+                return;
+            }            
+            const session = sessionManager.createSession(socket.data.userId); //interviewerId
             socket.join(session.id); //joined room
-            //attach data to socket obj
-            socket.data.role = Role.INTERVIEWER;
+            //role and user-id assigned by middleware
+            //attach sessionId to socket obj
             socket.data.sessionId = session.id;
-            socket.data.userId = interviewerId;
-
+            
             //when done
             socket.emit("session_created",session);
         });
         
         socket.on("join_session", (sessionId : string) =>{
-
+            if (!requireRole(socket, Role.GUEST)) {
+                socket.emit("error", "Unauthorized");
+                return;
+            }
             if(!sessionId){
-                console.log("invalid session id");
+                socket.emit("error", "Invalid session ID");
                 return;
             }
             const session : Session | undefined = sessionManager.getSession(sessionId);
@@ -36,8 +43,9 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
             //attach the socket.dat
             const guestId = socket.id;
             
-            socket.data.role = Role.GUEST;
-            socket.data.sessionId = session.id;
+            //role set by middleware already
+
+            socket.data.sessionId = session.id; //
             socket.data.userId = guestId; //guest 
             
             //also update session 
@@ -52,7 +60,7 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
         });
 
         socket.on("code_change", (sessionId : string, data)=>{
-
+            //no role guard both allowed
             if(sessionId !== socket.data.sessionId ){
                 socket.emit("error","Invalid sessionId @code_change");
                 return;
@@ -61,7 +69,7 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
         });
 
         socket.on("cursor_move",(sessionId : string, data)=>{
-
+            //no role guard both allowed
             if(sessionId !== socket.data.sessionId ){
                 socket.emit("error","Invalid sessionId @cursor_move");
                 return;
