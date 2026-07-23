@@ -1,5 +1,6 @@
 import express from "express";
 import dotenv from "dotenv";
+dotenv.config();
 import type {Request, Response} from "express";
 import http from "http";
 import {Server} from "socket.io";
@@ -10,7 +11,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import {socketAuth} from "./middleware/socketAuth.js"
 
-dotenv.config();
+import pg from 'pg';
+import pool from "./config/db.js";
 const app = express();
 const server = http.createServer(app);
 const io = new Server< ClientToServerEvents,ServerToClientEvents,InterServerEvents,SocketData >(server);
@@ -25,6 +27,9 @@ registerSocketHandlers(io,sessionManager);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+pool.query('SELECT NOW()').then(res => console.log(res.rows[0]));
+
 
 app.get('/test', (req :Request, res : Response)=>{
     res.sendFile(path.join(__dirname, './tests/test.socket.html'));

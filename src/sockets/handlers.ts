@@ -59,6 +59,13 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
             io.to(session.id).emit("session_joined", session);
         });
 
+        // Socket event arrives with session_id and payload
+        // Server verifies session_id against socket.data
+        // Extract event type and actor info
+        // Assign sequence_number (SELECT MAX + 1 FOR UPDATE in a transaction)
+        // Write to events table
+        // Broadcast to room
+        
         socket.on("code_change", (sessionId : string, data)=>{
             //no role guard both allowed
             if(sessionId !== socket.data.sessionId ){
