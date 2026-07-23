@@ -11,11 +11,12 @@ export interface Session {
     endedReason : EndedReason | null // can be null cause PRE_START and ONGOING has no endedreason.
 }
 
+// if enums not like this- will return serial no. 
 export enum SessionStatus {
-    PRE_START,
-    ONGOING,
-    ON_HOLD,
-    ENDED
+    PRE_START = 'PRE_START',
+    ONGOING = 'ONGOING',
+    ON_HOLD = 'ON_HOLD',
+    ENDED = 'ENDED'
 }
 
 export enum EndedReason {

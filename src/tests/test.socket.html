@@ -30,12 +30,7 @@
     // const socket = io("http://localhost:3000");  
 
     //with token -> accept
-    const socket = io("http://localhost:3000", {
-      withCredentials: true,
-      extraHeaders: {
-        cookie: "token=PASTE_TOKEN_HERE"
-      }
-    });
+    const socket = io("http://localhost:3000");
 
     let currentSessionId = null;
 
