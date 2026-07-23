@@ -2,6 +2,7 @@
 //server diff tehm by socket.data.role
 
 import type {Session} from "../types/session.js";
+import type { SessionRow } from "./db.js";
 
 export interface ClientToServerEvents{
     "create_session" : ()=> void;
@@ -20,8 +21,8 @@ export interface ClientToServerEvents{
 
 //client needs stuff back
 export interface ServerToClientEvents{
-    "session_created" : (session : Session)=>void;
-    "session_joined" : (session : Session)=>void;
+    "session_created" : (session : SessionRow)=>void;
+    "session_joined" : (session : SessionRow)=>void;
     "code_updated" : (data:{
         content: string;
         cursorPosition: {line : number, character : number};
@@ -38,7 +39,7 @@ export interface SocketData{
     userId : string; 
 }
 
-export enum Role{
-    INTERVIEWER,
-    GUEST
+export enum Role{ //changed to string for pg
+    INTERVIEWER = 'INTERVIEWER',
+    GUEST = 'GUEST'
 }

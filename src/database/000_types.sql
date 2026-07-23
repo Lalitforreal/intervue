@@ -30,7 +30,8 @@ CREATE TYPE event_type as ENUM(
     'SESSION_EXPIRED'
 );
 
-CREATE TYPE role as ENUM(
+CREATE TYPE user_role as ENUM(
     'INTERVIEWER',
     'GUEST'
 );
+

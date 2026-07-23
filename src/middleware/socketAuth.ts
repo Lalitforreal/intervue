@@ -5,7 +5,7 @@ import type { ExtendedError, Socket } from "socket.io";
 import type { Role } from "../types/socket.js";
 
 interface User{
-    role : Role,
+    role : Role.GUEST | Role.INTERVIEWER,
     userId : string
 };
 

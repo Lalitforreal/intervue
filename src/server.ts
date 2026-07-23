@@ -10,7 +10,7 @@ import { SessionManager } from "./session/SessionManager.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import {socketAuth} from "./middleware/socketAuth.js"
-
+import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import pool from "./config/db.js";
 const app = express();
@@ -28,12 +28,20 @@ registerSocketHandlers(io,sessionManager);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-pool.query('SELECT NOW()').then(res => console.log(res.rows[0]));
-
 
 app.get('/test', (req :Request, res : Response)=>{
     res.sendFile(path.join(__dirname, './tests/test.socket.html'));
 })
+
+app.get('/dev/token', (req: Request, res: Response) => {
+    const token = jwt.sign(
+        { userId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', role: 'INTERVIEWER' },
+        process.env.JWT_KEY as string,
+        { expiresIn: '1d' }
+    );
+    res.cookie('token', token, { httpOnly: true });
+    res.json({ token, message: 'cookie set' });
+});
 
 app.get("/health", (req : Request, res : Response)=>{
     res.json({
