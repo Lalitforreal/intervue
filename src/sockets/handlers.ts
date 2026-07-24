@@ -2,11 +2,13 @@
 import type { Server } from "socket.io";
 import { type ClientToServerEvents, type ServerToClientEvents, type InterServerEvents, type SocketData, Role } from "../types/socket.js";
 import { SessionManager } from "../session/SessionManager.js";
-import crypto from "crypto";
+import crypto, { type UUID } from "crypto";
 import { SessionStatus, type Session } from "../types/session.js";
 import { requireRole } from "../middleware/roleGuard.js";
 import pool from "../config/db.js";
 import type { SessionRow } from "../types/db.js";
+
+import { persistEvent } from "../utils/persisitEvent.js";
 
 export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerToClientEvents,InterServerEvents,SocketData >,sessionManager : SessionManager){
     console.log("io-socket-connected");
@@ -40,13 +42,11 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                 }
 
                 const sessionId = result.rows[0].id;
-                const seqResult = await client.query('SELECT COALESCE(MAX(sequence_number),0) + 1 AS next_seq FROM events WHERE session_id = $1',[sessionId]);
-                const seqNumber = seqResult.rows[0].next_seq;
-                
-                await client.query('INSERT INTO events(session_id, sequence_number,event_type,actor_id,actor_role) VALUES ($1,$2,$3,$4,$5)',
-                    [sessionId, seqNumber,'SESSION_CREATED', socket.data.userId, socket.data.role]
-                );
-                
+                const payload  =  {}; //for session created - empty.
+
+                //util - src/utils/persistEvent
+                await persistEvent(sessionId,client,'SESSION_CREATED',socket.data.userId as UUID, socket.data.role, payload);
+
                 await client.query('COMMIT');
                 //afer commit
 
@@ -59,6 +59,7 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                 socket.emit("session_created",result.rows[0]);
 
             }catch(err){
+                console.log(err);
                 await client.query('ROLLBACK');
                 socket.emit("error", "client pool connection failed");
             }finally{
@@ -95,12 +96,9 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                 const updatedRow = updatedResult.rows[0];
                 
                 // events table
-                const seqResult = await client.query('SELECT COALESCE(MAX(sequence_number),0) + 1 AS next_seq FROM events WHERE session_id = $1',[sessionId]);
-                const seqNumber = seqResult.rows[0].next_seq;
-                
-                await client.query('INSERT INTO events(session_id, sequence_number,event_type,actor_id,actor_role) VALUES ($1,$2,$3,$4,$5)',
-                    [sessionId, seqNumber,'SESSION_JOINED', guestId , socket.data.role]
-                );
+
+                const payload = {guestId : guestId};
+                await persistEvent(sessionId,client,'SESSION_JOINED',socket.data.userId as UUID, socket.data.role,payload);
                 
                 await client.query('COMMIT');
 
@@ -109,8 +107,8 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                 socket.data.sessionId = updatedRow.id;
                 io.to(updatedRow.id).emit("session_joined", updatedRow);
             }catch(err){
-                socket.emit("error", "update issue");
                 await client.query('ROLLBACK');
+                socket.emit("error", "update issue");
             }finally{
                 client.release();
             }
@@ -123,22 +121,52 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
         // Write to events table
         // Broadcast to room
 
-        socket.on("code_change", (sessionId : string, data)=>{
+        socket.on("code_change", async (sessionId : string, data)=>{
             //no role guard both allowed
             if(sessionId !== socket.data.sessionId ){
                 socket.emit("error","Invalid sessionId @code_change");
                 return;
             }
-            socket.to(sessionId).emit("code_updated",data);
+            const client = await pool.connect();
+            try{
+                await client.query('BEGIN');
+
+                const payload = data;
+                await persistEvent(sessionId,client,'CODE_CHANGED',socket.data.userId as UUID, socket.data.role,payload);
+
+                await client.query('COMMIT');
+                socket.to(sessionId).emit("code_updated",data);
+
+            }catch(err){
+                await client.query('ROLLBACK');
+                socket.emit("error","client err");
+            }finally{
+                client.release();
+            }
         });
 
-        socket.on("cursor_move",(sessionId : string, data)=>{
+        socket.on("cursor_move",async (sessionId : string, data)=>{
             //no role guard both allowed
             if(sessionId !== socket.data.sessionId ){
                 socket.emit("error","Invalid sessionId @cursor_move");
                 return;
             }
-            socket.to(sessionId).emit("cursor_updated",data);
+            const client = await pool.connect();
+            try{
+                await client.query('BEGIN');
+                
+                const payload = data;
+                await persistEvent(sessionId,client,'CURSOR_MOVED',socket.data.userId as UUID, socket.data.role,payload);
+
+                await client.query('COMMIT');
+                socket.to(sessionId).emit("cursor_updated",data);
+
+            }catch(err){
+                await client.query('ROLLBACK');
+                socket.emit("error","client err");
+            }finally{
+                client.release();
+            }
         });
     })
 }
