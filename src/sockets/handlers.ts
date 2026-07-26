@@ -1,18 +1,19 @@
 
-import type { Server } from "socket.io";
-import { type ClientToServerEvents, type ServerToClientEvents, type InterServerEvents, type SocketData, Role } from "../types/socket.js";
+import type { DisconnectReason, Server } from "socket.io";
+import { type ClientToServerEvents, type ServerToClientEvents, type InterServerEvents, type SocketData, Role, DisconnectedReason } from "../types/socket.js";
 import { SessionManager } from "../session/SessionManager.js";
 import crypto, { type UUID } from "crypto";
-import { SessionStatus, type Session } from "../types/session.js";
+import { DisconnectReason, EndedReason, SessionStatus, type Session } from "../types/session.js";
 import { requireRole } from "../middleware/roleGuard.js";
 import pool from "../config/db.js";
 import type { SessionRow } from "../types/db.js";
 
 import { persistEvent } from "../utils/persisitEvent.js";
+import { Socket } from "dgram";
 
 export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerToClientEvents,InterServerEvents,SocketData >,sessionManager : SessionManager){
     console.log("io-socket-connected");
-
+    const disconnectedGuests = new Set<string>(); //for .on(disconnect) -> if set empty guest is there
     io.on("connection", (socket)=>{
         socket.on("create_session", async ()=>{
             //role guard
@@ -168,5 +169,116 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                 client.release();
             }
         });
+
+        //grace period settimeout(
+        // check if session still on hold, if yes end session perissit session abandoned evnet notify the guest
+        // ,30000)
+
+        //for guest cehck fi sesison has guestId or not
+        socket.on("disconnect", async ()=>{
+            const sessionId : string | null = socket.data.sessionId;
+            if(!sessionId) return;
+            const role : Role = socket.data.role;
+
+            if(role === Role.INTERVIEWER){
+                const client = await pool.connect();
+                try{
+                    await client.query('BEGIN');
+                    
+                    // update sesssion status to be on hold
+                    await client.query('UPDATE sessions SET status = $1 WHERE id = $2', 
+                        [SessionStatus.ON_HOLD, sessionId]
+                    );
+                    //persisit
+                    const payload = {};
+                    await persistEvent(sessionId, client, 'INTERVIEWER_DISCONNECTED',null,Role.SYSTEM, payload);
+                    await client.query('COMMIT');
+
+                    //grace period starts
+                    setTimeout(async ()=>{
+                        //check if session status is still on hold
+                        const result = await pool.query('SELECT status FROM sessions WHERE id = $1',[sessionId]);
+                        const sessionStatus = result.rows[0]?.status as SessionStatus;
+                        if(sessionStatus === SessionStatus.ON_HOLD){
+                            //end session - new transaction
+                            const client2 = await pool.connect();
+                            try{
+                                await client2.query('BEGIN');
+                                //update session status and ended_reason
+                                await client2.query('UPDATE sessions SET status = $1 ,ended_reason = $2 WHERE id = $3',
+                                    [SessionStatus.ENDED,EndedReason.ABANDONED,sessionId]
+                                );
+                                const payload = {};
+                                await persistEvent(sessionId,client2, 'SESSION_ABANDONED',null, Role.SYSTEM,payload );
+
+                                await client2.query('COMMIT');
+                                io.to(sessionId).emit('session_ended', EndedReason.ABANDONED);
+                            }catch(err){
+                                await client2.query('ROLLBACK');
+                                socket.emit("error", "client2 error");
+                            }finally{
+                                client2.release();
+                            }
+                        }
+                    },30000)
+                }catch(err){
+                    await client.query('ROLLBACK');
+                    socket.emit("error","client error");
+                }finally{
+                    client.release();
+                }
+            }
+
+            if(role === Role.GUEST){
+                const client3 = await pool.connect();
+                try{
+                    disconnectedGuests.add(socket.data.userId);
+                    await client3.query('BEGIN');
+                    const payload = {};
+                    await persistEvent(sessionId,client3,'GUEST_DISCONNECTED',null, Role.SYSTEM,payload);
+
+                    await client3.query('COMMIT');
+                                        //grace period starts
+                    setTimeout(async ()=>{
+                        //check if session status is still on hold
+
+                        if(disconnectedGuests.has(socket.data.userId)){
+                            //end session - new transaction
+                            const client2 = await pool.connect();
+                            try{
+                                await client2.query('BEGIN');
+                                //update session status and ended_reason
+                                await client2.query('UPDATE sessions SET status = $1 ,ended_reason = $2 WHERE id = $3',
+                                    [SessionStatus.ENDED,EndedReason.ABANDONED,sessionId]
+                                );
+                                const payload = {};
+                                await persistEvent(sessionId,client2, 'SESSION_ABANDONED',null, Role.SYSTEM,payload );
+
+                                await client2.query('COMMIT');
+                                io.to(sessionId).emit('session_ended', EndedReason.ABANDONED);
+                            }catch(err){
+                                await client2.query('ROLLBACK');
+                                socket.emit("error", "client2 error");
+                            }finally{
+                                client2.release();
+                            }
+                        }else{
+                            //guest reconnected within grace period
+                        }
+                    },30000)
+                }catch(err){
+                    await client3.query('ROLLBACK');
+                }finally{
+                    client3.release();
+                }
+            }
+        })
+
+
+
+        //reconnect - 
+        //interviewer -> status onhold so join and change status
+        //if guest - you send missed events adn remove from disconnectedguest set
+
     })
 }

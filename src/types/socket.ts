@@ -1,7 +1,7 @@
 //interviewer and guests both connect to the same socket-server
 //server diff tehm by socket.data.role
 
-import type {Session} from "../types/session.js";
+import type {EndedReason, Session} from "../types/session.js";
 import type { SessionRow } from "./db.js";
 
 export interface ClientToServerEvents{
@@ -23,6 +23,7 @@ export interface ClientToServerEvents{
 export interface ServerToClientEvents{
     "session_created" : (session : SessionRow)=>void;
     "session_joined" : (session : SessionRow)=>void;
+    "session_ended": (reason: EndedReason) => void;
     "code_updated" : (data:{
         content: string;
         cursorPosition: {line : number, character : number};
@@ -41,5 +42,12 @@ export interface SocketData{
 
 export enum Role{ //changed to string for pg
     INTERVIEWER = 'INTERVIEWER',
-    GUEST = 'GUEST'
+    GUEST = 'GUEST',
+    SYSTEM = 'SYSTEM'
+}
+
+export enum DisconnectedReason {
+    NORMAL = 'NORMAL',
+    ABANDONED = 'ABANDONED',
+    EXPIRED = 'EXPIRED'
 }
