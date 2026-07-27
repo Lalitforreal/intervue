@@ -358,11 +358,23 @@ without changing the event schema.
 
 ### ON DISCONNECT
 
-- Server starts a grace period timer (e.g. 30 seconds)
-- If interviewer: session moves to ON_HOLD, guest sees waiting screen
-- If guest: session stays ONGOING, interviewer is notified
+- Grace period: 30 seconds for both roles
+- If interviewer: session immediately moves to ON_HOLD. Guest sees waiting screen.
+- If guest: session stays ONGOING. Interviewer is notified.
 - Session is NOT ended. All data preserved.
-- GUEST_DISCONNECTED or INTERVIEWER_DISCONNECTED event written to log
+- GUEST_DISCONNECTED or INTERVIEWER_DISCONNECTED event written to log.
+- Both start a 30 second setTimeout on disconnect.
+- If grace period expires without reconnect → session moves to ENDED, ended_reason ABANDONED, SESSION_ABANDONED event persisted, room notified via session_ended emit.
+
+### GUEST DISCONNECT TRACKING (V1)
+
+Guest reconnection is tracked using an in-memory Set (disconnectedGuests).
+- On disconnect: guest userId added to Set.
+- On reconnect: guest userId removed from Set.
+- Inside setTimeout: if userId still in Set, grace period expired without reconnect.
+
+V2 upgrade path: add guest_disconnected_at TIMESTAMP column to sessions table.
+This survives server crashes unlike the in-memory Set.
 
 ### CLIENT RESPONSIBILITY
 
@@ -382,8 +394,8 @@ On reconnect, the client sends this last known sequence number to the server.
 
 ### IF GRACE PERIOD EXPIRES WITHOUT RECONNECT
 
-- Interviewer: session moves to ABANDONED, guest is notified
-- Guest: session moves to ENDED, interviewer is notified
+- Both roles: session moves to ENDED, ended_reason ABANDONED
+- Room notified via session_ended emit
 
 ---
 
@@ -395,6 +407,7 @@ On reconnect, the client sends this last known sequence number to the server.
 - Socket.IO room memberships
 - socket.data contents (role, user_id, session_id per connection)
 - Any event received but not yet written to PostgreSQL
+- disconnectedGuests Set (guest disconnect tracking)
 
 ### FULLY RECOVERABLE (in PostgreSQL)
 
