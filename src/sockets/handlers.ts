@@ -302,7 +302,7 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                         const payload = {};
                         await persistEvent(sessionId, client, 'INTERVIEWER_RECONNECTED',null, Role.SYSTEM,payload);
                         //now get the events using query
-                        const missedEvents = await client.query('SELECT * FROM events WHERE sequence_number > $1 AND session_id = $2',
+                        const missedEvents = await client.query('SELECT * FROM events WHERE sequence_number > $1 AND session_id = $2 ORDER BY sequence_number ASC',
                             [lastSeqNumber, sessionId]
                         );
 
@@ -347,7 +347,7 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                         const payload = {};
                         await persistEvent(sessionId, client, 'GUEST_RECONNECTED',null, Role.SYSTEM,payload);
                         //now get the events using query
-                        const missedEvents = await client.query('SELECT * FROM events WHERE sequence_number > $1 AND session_id = $2',
+                        const missedEvents = await client.query('SELECT * FROM events WHERE sequence_number > $1 AND session_id = $2 ORDER BY sequence_number ASC',
                             [lastSeqNumber, sessionId]
                         );
 
