@@ -1,15 +1,14 @@
 
-import type { DisconnectReason, Server } from "socket.io";
+import type {  Server } from "socket.io";
 import { type ClientToServerEvents, type ServerToClientEvents, type InterServerEvents, type SocketData, Role, DisconnectedReason } from "../types/socket.js";
 import { SessionManager } from "../session/SessionManager.js";
 import crypto, { type UUID } from "crypto";
-import { DisconnectReason, EndedReason, SessionStatus, type Session } from "../types/session.js";
+import {  EndedReason, SessionStatus } from "../types/session.js";
 import { requireRole } from "../middleware/roleGuard.js";
 import pool from "../config/db.js";
 import type { SessionRow } from "../types/db.js";
 
 import { persistEvent } from "../utils/persisitEvent.js";
-import { Socket } from "dgram";
 
 export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerToClientEvents,InterServerEvents,SocketData >,sessionManager : SessionManager){
     console.log("io-socket-connected");
@@ -232,12 +231,12 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
             if(role === Role.GUEST){
                 const client3 = await pool.connect();
                 try{
-                    disconnectedGuests.add(socket.data.userId);
                     await client3.query('BEGIN');
                     const payload = {};
                     await persistEvent(sessionId,client3,'GUEST_DISCONNECTED',null, Role.SYSTEM,payload);
-
+                    
                     await client3.query('COMMIT');
+                    disconnectedGuests.add(socket.data.userId);
                                         //grace period starts
                     setTimeout(async ()=>{
                         //check if session status is still on hold
@@ -279,6 +278,106 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
         //reconnect - 
         //interviewer -> status onhold so join and change status
         //if guest - you send missed events adn remove from disconnectedguest set
+
+        socket.on("reconnect_session", async (sessionId : string, lastSeqNumber : number)=>{
+            if(socket.data.role === Role.INTERVIEWER){
+                const client = await pool.connect();
+                try{
+                    await client.query('BEGIN');
+                    const result = await client.query('SELECT status FROM sessions WHERE id = $1 AND interviewer_id = $2',
+                        [sessionId, socket.data.userId]); //recheck if valid session as you're trusting the params
+
+                    if(!result.rows[0]){
+                        socket.emit("error","wrong sessionId or not valid interviewer");
+                        return;
+                    }
+
+                    const status = result.rows[0]?.status as SessionStatus;
+                    socket.data.sessionId = sessionId;
+                    if(status === SessionStatus.ON_HOLD){
+                        //rejoin
+                        await client.query('UPDATE sessions SET status = $1 WHERE id = $2',
+                            [SessionStatus.ONGOING, sessionId]
+                        );
+                        const payload = {};
+                        await persistEvent(sessionId, client, 'INTERVIEWER_RECONNECTED',null, Role.SYSTEM,payload);
+                        //now get the events using query
+                        const missedEvents = await client.query('SELECT * FROM events WHERE sequence_number > $1 AND session_id = $2',
+                            [lastSeqNumber, sessionId]
+                        );
+
+                        
+                        //latest
+                        const currentState =await client.query('SELECT * FROM events WHERE sequence_number = (SELECT MAX(sequence_number) FROM events WHERE event_type = $1 AND session_id = $2) AND session_id = $2',
+                            ['CODE_CHANGED', sessionId]
+                        );
+                        await client.query('COMMIT');
+
+                        socket.join(sessionId); //join before emit
+                        socket.emit("events_missed", missedEvents.rows); //send the array of missed events
+                        if(currentState.rows[0]){
+                            socket.emit('current_state', currentState.rows[0]);
+                        }
+
+                    }
+                    if(status === SessionStatus.ENDED){
+                        socket.emit("error","session ended already can't reconnect");
+                    }
+                }catch(err){
+                    await client.query('ROLLBACK');
+                    socket.emit('error',"client error reconnecting");
+                }finally{
+                    client.release();
+                }
+
+            }else{
+                //guest
+                const client = await pool.connect();
+                try{
+                    await client.query('BEGIN');
+                    const result = await client.query('SELECT status FROM sessions WHERE id = $1 AND guest_id = $2',
+                        [sessionId, socket.data.userId]
+                    )
+                    const status = result.rows[0]?.status as SessionStatus;
+                    if(status === SessionStatus.ENDED){
+                        socket.emit("error","grace period over");
+                        return;
+                    }
+                    if(status === SessionStatus.ONGOING && disconnectedGuests.has(socket.data.userId)){
+                        const payload = {};
+                        await persistEvent(sessionId, client, 'GUEST_RECONNECTED',null, Role.SYSTEM,payload);
+                        //now get the events using query
+                        const missedEvents = await client.query('SELECT * FROM events WHERE sequence_number > $1 AND session_id = $2',
+                            [lastSeqNumber, sessionId]
+                        );
+
+                        
+                        //latest
+                        const currentState =await client.query('SELECT * FROM events WHERE sequence_number = (SELECT MAX(sequence_number) FROM events WHERE event_type = $1 AND session_id = $2) AND session_id = $2',
+                            ['CODE_CHANGED', sessionId]
+                        );
+                        await client.query('COMMIT');
+                        disconnectedGuests.delete(socket.data.userId);
+
+                        socket.join(sessionId);
+
+                        socket.emit("events_missed", missedEvents.rows); //send the array of missed events
+                        if(currentState.rows[0]){
+                            socket.emit('current_state', currentState.rows[0]);
+                        }
+
+                        socket.data.sessionId = sessionId;
+                    }
+
+
+                }catch(err){
+                    await client.query('ROLLBACK');
+                    socket.emit("error", 'invalid client info');
+                }finally{
+                    client.release();
+                }
+            }
+        });
 
     })
 }
