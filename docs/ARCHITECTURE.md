@@ -374,7 +374,11 @@ Guest reconnection is tracked using an in-memory Set (disconnectedGuests).
 - Inside setTimeout: if userId still in Set, grace period expired without reconnect.
 
 V2 upgrade path: add guest_disconnected_at TIMESTAMP column to sessions table.
-This survives server crashes unlike the in-memory Set.
+This survives server crashes unlike the in-memory Set. On server crash, the Set
+is lost — a guest who disconnected just before crash will never be cleaned up from
+the Set, meaning their grace period timeout is also lost. Full recovery requires
+the DB column.
+
 
 ### CLIENT RESPONSIBILITY
 
@@ -497,6 +501,31 @@ This makes it trivially testable — feed it a known event log,
 assert the output at every sequence number.
 
 ---
+
+## Implementation — replayFunc
+
+The replay engine is implemented as a pure async utility in `src/utils/replayFunc.ts`.
+
+```ts
+replayFunc(sessionId: string, sequenceN: number, pool: Pool): Promise<Partial<payload>>
+```
+
+Instead of fetching all events up to N and filtering in code, it uses PostgreSQL's `DISTINCT ON`:
+
+```sql
+SELECT DISTINCT ON (event_type) *
+FROM events
+WHERE session_id = $1
+  AND sequence_number <= $2
+  AND event_type = ANY($3)
+ORDER BY event_type, sequence_number DESC
+```
+
+`DISTINCT ON (event_type)` returns one row per event type — the one with the highest sequence number at or before N. No in-code looping. The DB does the work.
+
+Returns `Partial<payload>` — partial because a session in PRE_START may have no CODE_CHANGED events yet.
+
+The socket handler `replay-events` calls this function and emits `replayed-event-data` back to the requesting client. Available to both INTERVIEWER and GUEST roles.
 
 ## Why this approach is powerful
 
