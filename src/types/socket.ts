@@ -4,11 +4,13 @@
 import type { Query } from "pg";
 import type {EndedReason, Session} from "../types/session.js";
 import type { SessionRow } from "./db.js";
+import type { payload } from "../utils/replay.js";
 
 export interface ClientToServerEvents{
     "create_session" : ()=> void;
     "join_session" : (sessionId : string)=> void;
     "reconnect_session" : (sessionId : string, lastSeqNumber : number) =>void;
+    "replay-events" : (sessionId : string, sequenceN : number)=> void;
     "code_change" : (sessionId : string, data:{
         content : string;
         cursorPosition : { line : number, character : number};
@@ -28,6 +30,7 @@ export interface ServerToClientEvents{
     "session_ended": (reason: EndedReason) => void;
     "events_missed" : (missedEvents :any[])=>void;
     "current_state" : (currentCode : Object)=> void;
+    "replayed-event-data" :(data : Partial<payload>) => void;
     "code_updated" : (data:{
         content: string;
         cursorPosition: {line : number, character : number};
