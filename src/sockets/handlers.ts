@@ -9,6 +9,7 @@ import pool from "../config/db.js";
 import type { SessionRow } from "../types/db.js";
 
 import { persistEvent } from "../utils/persisitEvent.js";
+import { replayFunc, type payload } from "../utils/replay.js";
 
 export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerToClientEvents,InterServerEvents,SocketData >,sessionManager : SessionManager){
     console.log("io-socket-connected");
@@ -376,6 +377,15 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                 }finally{
                     client.release();
                 }
+            }
+        });
+
+        socket.on("replay-events", async(sessionId : string, sequenceN : number)=>{
+            try{
+                const data : Partial<payload> = await replayFunc(sessionId,sequenceN,pool);
+                socket.emit("replayed-event-data", data);
+            }catch(err){
+                socket.emit("error","can't fetch replayed events");
             }
         });
 
