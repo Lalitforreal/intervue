@@ -7,7 +7,6 @@ import {  EndedReason, SessionStatus } from "../types/session.js";
 import { requireRole } from "../middleware/roleGuard.js";
 import pool from "../config/db.js";
 import type { SessionRow } from "../types/db.js";
-
 import { persistEvent } from "../utils/persisitEvent.js";
 import { replayFunc, type payload } from "../utils/replay.js";
 

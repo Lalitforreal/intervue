@@ -14,7 +14,6 @@ export function socketAuth(socket : Socket, next : (err?: ExtendedError)=> void)
         const headerCookie : string | undefined = socket.handshake.headers.cookie;
         if(!headerCookie || headerCookie == undefined){
             throw new Error("unauth @headerCookie");
-            return;
         }
         
         const cookies = cookie.parse(headerCookie);
