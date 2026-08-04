@@ -1,30 +1,47 @@
-import cookie from "cookie"; 
-import jwt from "jsonwebtoken";
+
+import jwt, { type JwtPayload } from "jsonwebtoken";
 
 import type { ExtendedError, Socket } from "socket.io";
-import type { Role } from "../types/socket.js";
+import { Role } from "../types/socket.js";
 
-interface User{
-    role : Role.GUEST | Role.INTERVIEWER,
-    userId : string
-};
 
+//do everythign in handshake
+
+
+interface UserPayload extends JwtPayload{
+    userId : string,
+    role : Role
+}
 export function socketAuth(socket : Socket, next : (err?: ExtendedError)=> void){
     try{
-        const headerCookie : string | undefined = socket.handshake.headers.cookie;
-        if(!headerCookie || headerCookie == undefined){
-            throw new Error("unauth @headerCookie");
-        }
-        
-        const cookies = cookie.parse(headerCookie);
-        const token = cookies.token as string;
-        const decoded : User  = jwt.verify(token, process.env.JWT_KEY as string) as User ;
-        //jwt either returns or throws and catch handles it
-        socket.data.role = decoded.role;
-        socket.data.userId = decoded.userId;
-        socket.data.sessionId = null;
+        let token : string | undefined;
+        token = socket.handshake.auth.token;
+        if(!token && socket.handshake.auth.role == Role.GUEST){
+            //assign as guest
+            //create guest id
+            const guestId : string = crypto.randomUUID(); 
+            socket.data.userId = guestId;
+            socket.data.role = Role.GUEST;
+            next();
+            return;
 
-        next();
+        }else{
+            //token is there so extract using jwt
+            if (typeof token !== "string") {
+                throw new Error("Invalid token");
+            }
+
+            const decoded = jwt.verify(token, process.env.JWT_KEY!);
+
+            if(typeof decoded === "string"){
+                throw new Error("Invalid token");
+            }
+            const user = decoded as UserPayload;
+            socket.data.userId = user.userId;
+            socket.data.role = user.role;
+            next();
+        }
+
     }catch(err){
         next(new Error("unauth"));
     }

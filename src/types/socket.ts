@@ -41,6 +41,7 @@ export interface ServerToClientEvents{
 };
 
 export interface InterServerEvents{};
+
 export interface SocketData{
     sessionId : string | null; //of the current session 
     role : Role,

@@ -25,6 +25,7 @@
   },
   "homepage": "https://github.com/Lalitforreal/intervue#readme",
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/cookie": "^0.6.0",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
@@ -35,6 +36,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "cookie": "^0.7.2",
     "express": "^5.2.1",
     "http": "^0.0.1-security",
