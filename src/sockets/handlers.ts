@@ -58,6 +58,7 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                 //when done after transaction then only emit
                 socket.emit("session_created",result.rows[0]);
 
+
             }catch(err){
                 console.log(err);
                 await client.query('ROLLBACK');

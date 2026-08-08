@@ -3,10 +3,11 @@
 import * as vscode from 'vscode';
 import { loginReq } from './auth/auth';
 import { error } from 'console';
-import { connectSocket } from './sockets/connection';
+import { connectSocket, emitSocket } from './sockets/connection';
 
 import { connectionEmitter } from './sockets/connection';
-import { Role } from './types';
+import { Role, SessionRow } from './types';
+import { posix } from 'path';
 
 
 export function activate(context: vscode.ExtensionContext) {
@@ -28,19 +29,45 @@ export function activate(context: vscode.ExtensionContext) {
 		// Display a message box to the user
 		vscode.window.showInformationMessage('Hello World from intervue!');
 	});
+	
+	let currentSessionId : string | undefined ;
+	const codeChanged = vscode.workspace.onDidChangeTextDocument((e :vscode.TextDocumentChangeEvent)=>{ //event emitted when any changes happen
+		if(!currentSessionId){
+			return;
+		}
+		const editor = vscode.window.activeTextEditor;
+		const position = editor?.selection.active;
+		//gives pos.line and pos.char
+		const content  = e.document.getText();
+		const payload = {
+			content,
+			cursorPosition : {
+				line : position?.line,
+				character : position?.character
+			},
+			language : e.document.languageId
+		}
+
+			emitSocket("code_changed", currentSessionId, payload);
+		})
+
 
 	const guestLoginDisposable = vscode.commands.registerCommand('intervue.guestLogin', async()=>{
 		const sessionId : string | undefined = await vscode.window.showInputBox({
 			"placeHolder" : "Enter SessionId",
 			"prompt" : "please provide correct sessionId"
 		});
+
+		//no login req -> guest
 		const socket = await connectSocket(context, Role.GUEST);
 		//emit join session 
 		if(socket && sessionId){
+			currentSessionId = sessionId;
 			socket?.emit("join_session",sessionId);
 		}
 	})
 
+	
 	const InterviewerloginDisposable = vscode.commands.registerCommand('intervue.interviewerLogin',async ()=>{
 		const email : string | undefined = await vscode.window.showInputBox({
 			"placeHolder" : "Enter email",
@@ -77,7 +104,19 @@ export function activate(context: vscode.ExtensionContext) {
 			//connection emitters receive once so lives in activate not register
 			await loginReq(email, password,context); //calls the auth.ts
 			//interviewer side so role
-			await connectSocket(context, Role.INTERVIEWER);
+			const socket = await connectSocket(context, Role.INTERVIEWER);
+			//emit create session and get the sesion id connectsocket return socketid
+			socket.emit("create_session");
+			socket.on("session_created" , (resultRow0 : SessionRow) =>{
+				const sessionId : string = resultRow0.id;
+				if(sessionId){
+					currentSessionId = sessionId;
+				}
+				
+				vscode.window.showInformationMessage(`Session created: ${sessionId}`);
+			})
+			
+
 
 		}catch(err){
 			if(err instanceof Error){
@@ -86,7 +125,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	})
 
-	context.subscriptions.push(disposable,InterviewerloginDisposable, guestLoginDisposable);
+	context.subscriptions.push(disposable,InterviewerloginDisposable, guestLoginDisposable, codeChanged);
 }
 
 // This method is called when your extension is deactivated

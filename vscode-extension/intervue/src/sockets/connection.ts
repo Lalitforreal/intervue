@@ -19,10 +19,11 @@ export async function connectSocket(context : ExtensionContext, role : Role) {
     let token = await context.secrets.get("token");
         if(!token || token === undefined){
             //connect as guest using role only
-            socket = io("http://localhost:3000", {auth : {
+            socket = io("http://localhost:3000", {auth : { 
                 role 
             }});
         }else{
+            //token stored here so can use in socket auth
             socket = io("http://localhost:3000", {auth : {
                 token : token,
                 role 
@@ -50,7 +51,12 @@ export async function connectSocket(context : ExtensionContext, role : Role) {
 
 
         return socket; //for use in extension
-
 }
+
+export function emitSocket(event :string , ...args : any[]){
+    socket?.emit(event, ...args); //args can be anything extra that the event needs
+}
+
+
 
 
