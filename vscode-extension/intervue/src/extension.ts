@@ -2,13 +2,13 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import { loginReq } from './auth/auth';
-import { error } from 'console';
 import { connectSocket, emitSocket } from './sockets/connection';
 
 import { connectionEmitter } from './sockets/connection';
 import { Role, SessionRow } from './types';
-import { posix } from 'path';
+import { Socket } from 'socket.io-client';
 
+let currentSessionId : string | undefined ;
 
 export function activate(context: vscode.ExtensionContext) {
 	console.log("ACTIVATE CALLED");
@@ -29,9 +29,10 @@ export function activate(context: vscode.ExtensionContext) {
 		// Display a message box to the user
 		vscode.window.showInformationMessage('Hello World from intervue!');
 	});
-	
-	let currentSessionId : string | undefined ;
+
+
 	const codeChanged = vscode.workspace.onDidChangeTextDocument((e :vscode.TextDocumentChangeEvent)=>{ //event emitted when any changes happen
+
 		if(!currentSessionId){
 			return;
 		}
@@ -47,10 +48,32 @@ export function activate(context: vscode.ExtensionContext) {
 			},
 			language : e.document.languageId
 		}
-
-			emitSocket("code_changed", currentSessionId, payload);
+		vscode.window.showInformationMessage("code change emitted");
+			emitSocket("code_change", currentSessionId, payload);
 		})
 
+
+
+	async function socketListener(socket : Socket){
+		if(!socket) return;
+
+		socket.on("code_updated",(data)=>{
+			//data has content, posn and language
+			//get the editor active and replace whole doc with content
+
+			const editor = vscode.window.activeTextEditor;
+			if(editor && data){
+				const fullRange = new vscode.Range(
+					editor.document.positionAt(0),
+					editor.document.positionAt(editor.document.getText().length)
+				);
+
+				editor.edit(editBuilder =>{
+					editBuilder.replace(fullRange , data.content);
+				})
+			}
+		})
+	}
 
 	const guestLoginDisposable = vscode.commands.registerCommand('intervue.guestLogin', async()=>{
 		const sessionId : string | undefined = await vscode.window.showInputBox({
@@ -60,10 +83,11 @@ export function activate(context: vscode.ExtensionContext) {
 
 		//no login req -> guest
 		const socket = await connectSocket(context, Role.GUEST);
+		socketListener(socket);
 		//emit join session 
 		if(socket && sessionId){
 			currentSessionId = sessionId;
-			socket?.emit("join_session",sessionId);
+			socket.emit("join_session",sessionId);
 		}
 	})
 
@@ -105,17 +129,19 @@ export function activate(context: vscode.ExtensionContext) {
 			await loginReq(email, password,context); //calls the auth.ts
 			//interviewer side so role
 			const socket = await connectSocket(context, Role.INTERVIEWER);
+			socketListener(socket);
 			//emit create session and get the sesion id connectsocket return socketid
-			socket.emit("create_session");
-			socket.on("session_created" , (resultRow0 : SessionRow) =>{
-				const sessionId : string = resultRow0.id;
-				if(sessionId){
-					currentSessionId = sessionId;
-				}
-				
-				vscode.window.showInformationMessage(`Session created: ${sessionId}`);
-			})
-			
+			if(socket){
+				socket.emit("create_session");
+				socket.on("session_created" , (resultRow0 : SessionRow) =>{
+					const sessionId : string = resultRow0.id;
+					if(sessionId){
+						currentSessionId = sessionId;
+						vscode.window.showInformationMessage(`Session created: ${sessionId}`);
+					}
+					
+				})
+			}
 
 
 		}catch(err){

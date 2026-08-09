@@ -54,8 +54,12 @@ export async function connectSocket(context : ExtensionContext, role : Role) {
 }
 
 export function emitSocket(event :string , ...args : any[]){
+    // console.log("emitSocket called", event, socket?.connected);
     socket?.emit(event, ...args); //args can be anything extra that the event needs
 }
+
+
+
 
 
 

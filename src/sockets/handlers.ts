@@ -128,6 +128,7 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                 socket.emit("error","Invalid sessionId @code_change");
                 return;
             }
+            // console.log("code_change received, broadcasting to room", sessionId);
             const client = await pool.connect();
             try{
                 await client.query('BEGIN');

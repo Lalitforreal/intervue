@@ -30,7 +30,7 @@
     // const socket = io("http://localhost:3000");  
 
     //with token -> accept
-    const socket = io("http://localhost:3000");
+  const socket = io("http://localhost:3000", { auth: { role: "GUEST" } });
 
     let currentSessionId = null;
 
