@@ -25,3 +25,8 @@ export interface SessionRow{
     ended_at : Date | null;
     ended_reason : EndedReason | null;
 }
+
+export interface Position{
+    line : number,
+    character : number
+}
