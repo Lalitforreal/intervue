@@ -36,7 +36,7 @@ export interface ServerToClientEvents{
         cursorPosition: {line : number, character : number};
         language: string 
     })=> void;
-    "cursor_updated" : (data: { line: number; character: number })=>void;
+    "cursor_updated" : (data: { role : Role, line: number; character: number })=>void;
     "error" : (message : string) => void;
 };
 

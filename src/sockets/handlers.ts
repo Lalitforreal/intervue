@@ -153,22 +153,15 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                 socket.emit("error","Invalid sessionId @cursor_move");
                 return;
             }
-            const client = await pool.connect();
-            try{
-                await client.query('BEGIN');
-                
-                const payload = data;
-                await persistEvent(sessionId,client,'CURSOR_MOVED',socket.data.userId as UUID, socket.data.role,payload);
-
-                await client.query('COMMIT');
-                socket.to(sessionId).emit("cursor_updated",data);
-
-            }catch(err){
-                await client.query('ROLLBACK');
-                socket.emit("error","client err");
-            }finally{
-                client.release();
-            }
+            console.log("testing");
+            const payload = {
+                role : socket.data.role,
+                line : data.line,
+                character : data.character
+            };
+            // dont persist cursor moved event to save memory
+            // await persistEvent(sessionId,client,'CURSOR_MOVED',socket.data.userId as UUID, socket.data.role,payload);
+            socket.to(sessionId).emit("cursor_updated", payload);
         });
 
         //grace period settimeout(

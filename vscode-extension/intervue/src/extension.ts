@@ -5,15 +5,16 @@ import { loginReq } from './auth/auth';
 import { connectSocket, emitSocket } from './sockets/connection';
 
 import { connectionEmitter } from './sockets/connection';
-import { Role, SessionRow } from './types';
+import { Position, Role, SessionRow } from './types';
 import { Socket } from 'socket.io-client';
+import e from 'express';
 
 let currentSessionId : string | undefined ;
 
 export function activate(context: vscode.ExtensionContext) {
 	console.log("ACTIVATE CALLED");
 	console.log('Congratulations, your extension "intervue" is now active!');
-
+	
 	connectionEmitter.on("auth_failed",(err)=>{
 		vscode.window.showErrorMessage(err);
 	})
@@ -23,37 +24,26 @@ export function activate(context: vscode.ExtensionContext) {
 	connectionEmitter.on("disconnected", ()=>{
 		vscode.window.showInformationMessage("disconnected");
 	})
-
+	//decoreation representing remote cursor
+	const remoteCursorDecoration_guest = vscode.window.createTextEditorDecorationType({
+		before : {
+			contentText : '|',
+			color : "yellow"
+		}
+	})
+	const remoteCursorDecoration_interviewer = vscode.window.createTextEditorDecorationType({
+		before : {
+			contentText : '|',
+			color : "red"
+		}
+	})
+	
 	const disposable = vscode.commands.registerCommand('intervue.helloWorld', () => {
 		// The code you place here will be executed every time your command is executed
 		// Display a message box to the user
 		vscode.window.showInformationMessage('Hello World from intervue!');
 	});
-
-
-	const codeChanged = vscode.workspace.onDidChangeTextDocument((e :vscode.TextDocumentChangeEvent)=>{ //event emitted when any changes happen
-
-		if(!currentSessionId){
-			return;
-		}
-		const editor = vscode.window.activeTextEditor;
-		const position = editor?.selection.active;
-		//gives pos.line and pos.char
-		const content  = e.document.getText();
-		const payload = {
-			content,
-			cursorPosition : {
-				line : position?.line,
-				character : position?.character
-			},
-			language : e.document.languageId
-		}
-		vscode.window.showInformationMessage("code change emitted");
-			emitSocket("code_change", currentSessionId, payload);
-		})
-
-
-
+	
 	async function socketListener(socket : Socket){
 		if(!socket) return;
 
@@ -73,7 +63,54 @@ export function activate(context: vscode.ExtensionContext) {
 				})
 			}
 		})
+				socket.on("cursor_updated",(data : {role : Role, line : number, character : number})=>{
+					if(!data){
+						socket.emit("error", "No position");
+						return;
+					}
+					//here you receive and render
+					const line = data.line;
+					const character = data.character;
+
+					//now create a range of 1 point, that will be the cursor then decoration will render a cursor
+					const editor = vscode.window.activeTextEditor;
+					if(!editor) return;
+					
+					const position = new vscode.Position(line,character);
+					const range = new vscode.Range(position,position); //0 range 
+					
+					//set
+					if(data.role == Role.GUEST){
+						editor.setDecorations(remoteCursorDecoration_guest, [range]);
+					}else{
+						editor.setDecorations(remoteCursorDecoration_interviewer, [range]);
+					}
+					vscode.window.showInformationMessage("cursor moved");
+				})
+
 	}
+	
+	const codeChanged = vscode.workspace.onDidChangeTextDocument((e :vscode.TextDocumentChangeEvent)=>{ //event emitted when any changes happen
+
+		if(!currentSessionId){
+			return;
+		}
+		const editor = vscode.window.activeTextEditor;
+		const position = editor?.selection.active;
+		//gives pos.line and pos.char
+		const content  = e.document.getText();
+		const payload = {
+			content,
+			cursorPosition : {
+				line : position?.line,
+				character : position?.character
+			},
+			language : e.document.languageId
+		}
+		vscode.window.showInformationMessage("code change emitted");
+			emitSocket("code_change", currentSessionId, payload);
+	})
+
 
 	const guestLoginDisposable = vscode.commands.registerCommand('intervue.guestLogin', async()=>{
 		const sessionId : string | undefined = await vscode.window.showInputBox({
@@ -119,6 +156,7 @@ export function activate(context: vscode.ExtensionContext) {
 			"password" : true, //not shown
 			"prompt" : "please provide input"
 		}) 
+		
 
 		if(email === undefined || password === undefined){
 			vscode.window.showErrorMessage("Invalid credentials");
@@ -140,7 +178,7 @@ export function activate(context: vscode.ExtensionContext) {
 						vscode.window.showInformationMessage(`Session created: ${sessionId}`);
 					}
 					
-				})
+				});
 			}
 
 
@@ -151,8 +189,29 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	})
 
-	context.subscriptions.push(disposable,InterviewerloginDisposable, guestLoginDisposable, codeChanged);
+
+	// 2 cursors 1 local and 1 rendered and wehenver cursor move you emit to server and if remote change you listen to the event and render using the editor selection event
+	const cursorTracking = vscode.window.onDidChangeTextEditorSelection((e) =>{
+		//e is the event 
+		// 2 cursor local and render remote cursor
+		//here only get local position and emit 
+		//to render remote one you listen in socket listener and make decoration
+		console.log("cursor tracking fired", currentSessionId);
+		if(!currentSessionId){
+			return;
+		}
+
+		const position : Position = e.selections[0].active;
+		const payload = position;
+		// console.log(position); 
+		emitSocket("cursor_move",currentSessionId, payload);
+
+	})
+
+	context.subscriptions.push(disposable,InterviewerloginDisposable, guestLoginDisposable, codeChanged, cursorTracking);
 }
+
 
 // This method is called when your extension is deactivated
 export function deactivate() {}
+
