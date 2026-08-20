@@ -24,6 +24,7 @@ export function activate(context: vscode.ExtensionContext) {
 	connectionEmitter.on("disconnected", ()=>{
 		vscode.window.showInformationMessage("disconnected");
 	})
+	
 	//decoreation representing remote cursor
 	const remoteCursorDecoration_guest = vscode.window.createTextEditorDecorationType({
 		before : {
@@ -214,4 +215,5 @@ export function activate(context: vscode.ExtensionContext) {
 
 // This method is called when your extension is deactivated
 export function deactivate() {}
+
 

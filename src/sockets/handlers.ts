@@ -1,6 +1,6 @@
 
 import type {  Server } from "socket.io";
-import { type ClientToServerEvents, type ServerToClientEvents, type InterServerEvents, type SocketData, Role, DisconnectedReason } from "../types/socket.js";
+import { type ClientToServerEvents, type ServerToClientEvents, type InterServerEvents, type SocketData, Role, DisconnectedReason, type ProblemSetPayload } from "../types/socket.js";
 import { SessionManager } from "../session/SessionManager.js";
 import crypto, { type UUID } from "crypto";
 import {  EndedReason, SessionStatus } from "../types/session.js";
@@ -93,20 +93,29 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
 
                 const guestId = socket.data.userId;
                 const updatedResult = await client.query('UPDATE sessions SET guest_id = $1,status = $2, started_at = NOW() WHERE id = $3 RETURNING *',
-                     [guestId, SessionStatus.ONGOING,sessionRow.id]);
+                [guestId, SessionStatus.ONGOING,sessionRow.id]);
                 const updatedRow = updatedResult.rows[0];
                 
                 // events table
-
                 const payload = {guestId : guestId};
                 await persistEvent(sessionId,client,'SESSION_JOINED',socket.data.userId as UUID, socket.data.role,payload);
+                //for late joiners query if problem set already exists from the events table
+                const problemSet =await client.query('SELECT payload FROM events WHERE event_type = $1 AND session_id = $2 ORDER BY sequence_number DESC LIMIT 1',
+                    ['PROBLEM_SET',sessionId]
+                );
                 
                 await client.query('COMMIT');
-
+                const problemSetPayload : ProblemSetPayload = problemSet.rows[0]?.payload; //imp
+                if(problemSetPayload){
+                    socket.emit("problem-set-updated", problemSetPayload);
+                }
+                
                 socket.join(sessionRow.id);
                 //role set by middleware already
                 socket.data.sessionId = updatedRow.id;
                 io.to(updatedRow.id).emit("session_joined", updatedRow);
+
+
             }catch(err){
                 await client.query('ROLLBACK');
                 socket.emit("error", "update issue");
@@ -373,6 +382,27 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
                 }
             }
         });
+
+        socket.on("problem-set", async(sessionId : string, payload : ProblemSetPayload)=>{
+            const client = await pool.connect();
+            try{
+                if(!sessionId || sessionId !== socket.data.sessionId){
+                    socket.emit("error", "Invalid sessionId");
+                    return;
+                }
+                await client.query('BEGIN');
+                await persistEvent(sessionId,client,"PROBLEM_SET",socket.data.userId as UUID ,socket.data.role,payload);
+                await client.query("COMMIT");   
+                socket.to(sessionId).emit("problem-set-updated", payload);
+
+            }catch(err){
+                await client.query('ROLLBACK');
+                socket.emit("error", "Invalid problem-set");
+                
+            }finally{
+                client.release();
+            }
+        })
 
         socket.on("replay-events", async(sessionId : string, sequenceN : number)=>{
             try{
