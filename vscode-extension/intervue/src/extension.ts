@@ -5,9 +5,12 @@ import { loginReq } from './auth/auth';
 import { connectSocket, emitSocket } from './sockets/connection';
 
 import { connectionEmitter } from './sockets/connection';
-import { Position, Role, SessionRow } from './types';
+import { Position, ProblemSetPayload, Role, SessionRow } from './types';
 import { Socket } from 'socket.io-client';
 import e from 'express';
+import { getWebviewContent } from './utils/webView';
+import { emit } from 'process';
+import { getGuestProblemWebviewContent } from './utils/guestWebView';
 
 let currentSessionId : string | undefined ;
 
@@ -89,6 +92,39 @@ export function activate(context: vscode.ExtensionContext) {
 					vscode.window.showInformationMessage("cursor moved");
 				})
 
+
+				socket.on("problem-set-updated", async (data : ProblemSetPayload)=>{
+					if(!data || !data.title || !data.description || !data.constraints || !data.examples){
+						socket.emit("error","invalid payload");
+						return;
+					}
+					console.log("SOCKET LISTENER: problem received", data);
+
+					const guestPanel = vscode.window.createWebviewPanel(
+						'GuestWebview',
+						'Problem Set',
+						vscode.ViewColumn.One,
+						{
+							enableScripts : true,
+							localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
+
+						}
+					)
+					//send data to webview only when you receive ready - to eliminate the issue of html rendering delay
+					guestPanel.webview.onDidReceiveMessage((message)=>{
+						if(message.type === 'ready'){
+							guestPanel.webview.postMessage({
+								type : 'problem-updated',
+								payload : data
+							});
+
+						}
+					})
+					guestPanel.webview.html =  getGuestProblemWebviewContent();
+					
+
+				} )
+
 	}
 	
 	const codeChanged = vscode.workspace.onDidChangeTextDocument((e :vscode.TextDocumentChangeEvent)=>{ //event emitted when any changes happen
@@ -121,11 +157,18 @@ export function activate(context: vscode.ExtensionContext) {
 
 		//no login req -> guest
 		const socket = await connectSocket(context, Role.GUEST);
+		console.log("GUEST CONNECT SOCKET RETURNED", {
+			socket: socket.id,
+			connected: socket.connected
+		});
+
 		socketListener(socket);
-		//emit join session 
-		if(socket && sessionId){
+		if (sessionId) {
+			console.log("ABOUT TO JOIN:", sessionId);
 			currentSessionId = sessionId;
-			socket.emit("join_session",sessionId);
+			socket.emit("join_session", sessionId);
+
+			console.log("JOIN EVENT EMITTED");
 		}
 	})
 
@@ -209,7 +252,39 @@ export function activate(context: vscode.ExtensionContext) {
 
 	})
 
-	context.subscriptions.push(disposable,InterviewerloginDisposable, guestLoginDisposable, codeChanged, cursorTracking);
+	//webview stuff
+	const problemSetCommand = vscode.commands.registerCommand('intervue.problemSet', async()=>{
+		if(!currentSessionId){
+			return;
+		}
+		const panel = vscode.window.createWebviewPanel(
+			'intervue.problemSet', //identify type of webview
+			'Problem Set', //title
+			vscode.ViewColumn.One, // Editor column to show the panel in
+			{
+				enableScripts : true,
+        		localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]//Restrict loading resources to specific folders for later use
+			}
+		);
+		//set html content
+		panel.webview.html = getWebviewContent();
+
+		//extract payload after listening to message
+		panel.webview.onDidReceiveMessage((message)=>{
+			if(message.type === 'submit'){
+
+				const payload : ProblemSetPayload = message.payload;
+				if(!payload || !payload.title || !payload.description){
+					return;
+				}
+				
+				emitSocket("problem-set",currentSessionId,payload);
+			}
+		})
+
+	})
+
+	context.subscriptions.push(disposable,InterviewerloginDisposable, guestLoginDisposable, codeChanged, cursorTracking, problemSetCommand);
 }
 
 

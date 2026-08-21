@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intervue — Browser Interviewer</title>
+
+    <script src="/socket.io/socket.io.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 700px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+
+        input,
+        textarea,
+        button {
+            width: 100%;
+            margin-top: 8px;
+            margin-bottom: 16px;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        #status {
+            padding: 10px;
+            background: #eee;
+            margin-bottom: 20px;
+        }
+
+        pre {
+            background: #111;
+            color: #0f0;
+            padding: 15px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Intervue Browser Interviewer</h1>
+
+    <div id="status">Disconnected</div>
+
+    <button id="create-session">
+        Create Session
+    </button>
+
+    <p>
+        Session ID:
+        <strong id="session-id">None</strong>
+    </p>
+
+    <hr>
+
+    <h2>Set Problem</h2>
+
+    <input
+        id="title"
+        type="text"
+        placeholder="Problem title"
+    >
+
+    <textarea
+        id="description"
+        placeholder="Problem description"
+    ></textarea>
+
+    <textarea
+        id="constraints"
+        placeholder="Constraints"
+    ></textarea>
+
+    <textarea
+        id="examples"
+        placeholder="Examples"
+    ></textarea>
+
+    <button id="set-problem">
+        Set Problem
+    </button>
+
+    <h2>Events</h2>
+    <pre id="logs"></pre>
+
+    <script>
+        /*
+         * Replace this with your actual backend URL.
+         */
+        const socket = io("http://localhost:3000", {
+            auth: {
+                token : "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhMGVlYmM5OS05YzBiLTRlZjgtYmI2ZC02YmI5YmQzODBhMTEiLCJyb2xlIjoiSU5URVJWSUVXRVIiLCJpYXQiOjE3ODczMTAxMjksImV4cCI6MTc4NzM5NjUyOX0.Mwd0Fqci57ckqGWR5DbWUeAj8UgcSGFysO7VakCQDIU",
+                role: "INTERVIEWER"
+            }
+        });
+        console.log("inside");
+
+        let currentSessionId = null;
+
+        const status = document.getElementById("status");
+        const sessionIdElement = document.getElementById("session-id");
+        const logs = document.getElementById("logs");
+
+        function log(message) {
+            logs.textContent += message + "\n";
+        }
+
+        socket.on("connect", () => {
+            status.textContent = "Connected";
+            log(`Connected: ${socket.id}`);
+        });
+
+        socket.on("connect_error", (error) => {
+            console.error("CONNECT ERROR:", error);
+            console.error("MESSAGE:", error.message);
+            console.error("DESCRIPTION:", error.description);
+            console.error("CONTEXT:", error.context);
+
+            status.textContent = "Connection error";
+            log(`Connection error: ${error.message}`);
+        });
+
+        socket.on("error", (error) => {
+            log(`ERROR: ${JSON.stringify(error)}`);
+        });
+
+        /*
+         * Create interviewer session.
+         */
+        document
+            .getElementById("create-session")
+            .addEventListener("click", () => {
+
+                socket.emit("create_session");
+
+            });
+
+        /*
+         * Use whatever event name your backend currently emits
+         * after creating a session.
+         */
+        socket.on("session_created", (session) => {
+
+            currentSessionId = session.id;
+
+            sessionIdElement.textContent = currentSessionId;
+
+            log(
+                `Session created: ${currentSessionId}`
+            );
+        });
+
+        /*
+         * Emit problem_set using the SAME contract
+         * as your VS Code extension.
+         */
+        document
+            .getElementById("set-problem")
+            .addEventListener("click", () => {
+
+                if (!currentSessionId) {
+                    log("Create a session first.");
+                    return;
+                }
+
+                const payload = {
+                    title: document.getElementById("title").value,
+                    description: document.getElementById("description").value,
+                    constraints: document.getElementById("constraints").value,
+                    examples: document.getElementById("examples").value
+                };
+
+                log(
+                    `Sending problem-set: ${JSON.stringify(payload, null, 2)}`
+                );
+
+                socket.emit(
+                    "problem-set",
+                    currentSessionId,
+                    payload
+                );
+            });
+
+        /*
+         * So this listener is mainly useful for debugging
+         * if you later change that behavior.
+         */
+        socket.on("problem-set-updated", (payload) => {
+            log(
+                `Received problem-set-updated: ${JSON.stringify(payload)}`
+            );
+        });
+
+    </script>
+
+</body>
+</html>

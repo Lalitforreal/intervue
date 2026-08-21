@@ -14,6 +14,12 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
     console.log("io-socket-connected");
     const disconnectedGuests = new Set<string>(); //for .on(disconnect) -> if set empty guest is there
     io.on("connection", (socket)=>{
+
+        // console.log("SERVER SOCKET CONNECTED:", socket.id);
+        socket.onAny((event, ...args) => {
+            console.log("SERVER EVENT:", event, args);
+        });
+
         socket.on("create_session", async ()=>{
             //role guard
             if (!requireRole(socket, Role.INTERVIEWER)) {
@@ -68,58 +74,113 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
             }
         });
         
-        socket.on("join_session", async(sessionId : string) =>{
+        socket.on("join_session", async (sessionId: string) => {
+            console.log("JOIN_SESSION RECEIVED", {
+                socket: socket.id,
+                sessionId,
+                role: socket.data.role
+            });
+
             if (!requireRole(socket, Role.GUEST)) {
+                console.log("JOIN FAILED: invalid role");
                 socket.emit("error", "Unauthorized");
                 return;
             }
-            if(!sessionId){
+
+            if (!sessionId) {
+                console.log("JOIN FAILED: missing sessionId");
                 socket.emit("error", "Invalid session ID");
                 return;
             }
-            //also update session 
-            const client = await pool.connect();
-            try{
 
-                await client.query('BEGIN');
-                //FOR UPDATE locks the row so you can safely calculate next seq and avoid race condn - only valid inside a transaction
-                const result = await client.query<SessionRow>('SELECT * FROM sessions WHERE id=$1 FOR UPDATE', [sessionId]);
+            const client = await pool.connect();
+            try {
+                console.log("BEGIN TRANSACTION");
+                await client.query("BEGIN");
+                console.log("LOCKING SESSION");
+
+                const result = await client.query<SessionRow>(
+                    "SELECT * FROM sessions WHERE id = $1 FOR UPDATE",
+                    [sessionId]
+                );
+
                 const sessionRow = result.rows[0];
-                if(!sessionRow){
-                    await client.query('ROLLBACK');
+                if (!sessionRow) {
+                    await client.query("ROLLBACK");
                     socket.emit("error", "Session not found");
                     return;
                 }
 
+                console.log("SESSION FOUND:", sessionRow.id);
+
                 const guestId = socket.data.userId;
-                const updatedResult = await client.query('UPDATE sessions SET guest_id = $1,status = $2, started_at = NOW() WHERE id = $3 RETURNING *',
-                [guestId, SessionStatus.ONGOING,sessionRow.id]);
-                const updatedRow = updatedResult.rows[0];
-                
-                // events table
-                const payload = {guestId : guestId};
-                await persistEvent(sessionId,client,'SESSION_JOINED',socket.data.userId as UUID, socket.data.role,payload);
-                //for late joiners query if problem set already exists from the events table
-                const problemSet =await client.query('SELECT payload FROM events WHERE event_type = $1 AND session_id = $2 ORDER BY sequence_number DESC LIMIT 1',
-                    ['PROBLEM_SET',sessionId]
+                const updatedResult = await client.query(
+                    `UPDATE sessions
+                    SET guest_id = $1,
+                        status = $2,
+                        started_at = NOW()
+                    WHERE id = $3
+                    RETURNING *`,
+                    [guestId, SessionStatus.ONGOING, sessionRow.id]
                 );
-                
-                await client.query('COMMIT');
-                const problemSetPayload : ProblemSetPayload = problemSet.rows[0]?.payload; //imp
-                if(problemSetPayload){
+
+                const updatedRow = updatedResult.rows[0];
+
+                console.log("SESSION UPDATED");
+
+                const payload = {
+                    guestId
+                };
+
+                await persistEvent(
+                    sessionId,
+                    client,
+                    "SESSION_JOINED",
+                    socket.data.userId as UUID,
+                    socket.data.role,
+                    payload
+                );
+
+                console.log("SESSION_JOINED PERSISTED");
+                await client.query("COMMIT");
+                console.log("TRANSACTION COMMITTED");
+
+                const problemSet = await client.query(
+                    `SELECT payload
+                    FROM events
+                    WHERE event_type = $1
+                    AND session_id = $2
+                    ORDER BY sequence_number DESC
+                    LIMIT 1`,
+                    ["PROBLEM_SET", sessionId]
+                );
+
+                const problemSetPayload: ProblemSetPayload | undefined = problemSet.rows[0]?.payload;
+
+                console.log("PROBLEM SET:", problemSetPayload);
+
+                if (problemSetPayload) {
                     socket.emit("problem-set-updated", problemSetPayload);
+                    console.log("PROBLEM SET SENT TO GUEST");
                 }
-                
+
                 socket.join(sessionRow.id);
-                //role set by middleware already
+
+                console.log("GUEST JOINED", {
+                    socketId: socket.id,
+                    sessionId: sessionRow.id,
+                    rooms: [...socket.rooms]
+                });
+
                 socket.data.sessionId = updatedRow.id;
                 io.to(updatedRow.id).emit("session_joined", updatedRow);
 
-
-            }catch(err){
-                await client.query('ROLLBACK');
+            } catch (err) {
+                console.error("JOIN_SESSION ERROR:", err);
+                await client.query("ROLLBACK");
                 socket.emit("error", "update issue");
-            }finally{
+
+            } finally {
                 client.release();
             }
         });
@@ -383,17 +444,21 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
             }
         });
 
+        //interviewer only 
         socket.on("problem-set", async(sessionId : string, payload : ProblemSetPayload)=>{
             const client = await pool.connect();
             try{
-                if(!sessionId || sessionId !== socket.data.sessionId){
-                    socket.emit("error", "Invalid sessionId");
+
+                if(!sessionId || sessionId !== socket.data.sessionId || requireRole(socket,Role.INTERVIEWER) === false){
+                    socket.emit("error", "Invalid sessionId/role");
                     return;
                 }
+
                 await client.query('BEGIN');
                 await persistEvent(sessionId,client,"PROBLEM_SET",socket.data.userId as UUID ,socket.data.role,payload);
                 await client.query("COMMIT");   
                 socket.to(sessionId).emit("problem-set-updated", payload);
+                console.log("set problem");
 
             }catch(err){
                 await client.query('ROLLBACK');

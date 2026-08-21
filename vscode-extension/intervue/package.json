@@ -27,6 +27,10 @@
       {
         "command": "intervue.guestLogin",
         "title": "Intervue : guestLogin"
+      },
+      {
+        "command" : "intervue.problemSet",
+        "title": "Intervue : problemSet"
       }
     ]
   },

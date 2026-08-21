@@ -32,7 +32,7 @@ const __dirname = path.dirname(__filename);
 
 
 app.get('/test', (req :Request, res : Response)=>{
-    res.sendFile(path.join(__dirname, './tests/test.socket.html'));
+    res.sendFile(path.join(__dirname, './tests/interviewer.socket.html'));
 })
 
 app.get('/dev/token', (req: Request, res: Response) => {
