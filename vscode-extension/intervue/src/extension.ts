@@ -13,6 +13,7 @@ import { emit } from 'process';
 import { getGuestProblemWebviewContent } from './utils/guestWebView';
 
 let currentSessionId : string | undefined ;
+let guestPanel: vscode.WebviewPanel | undefined
 
 export function activate(context: vscode.ExtensionContext) {
 	console.log("ACTIVATE CALLED");
@@ -100,29 +101,47 @@ export function activate(context: vscode.ExtensionContext) {
 					}
 					console.log("SOCKET LISTENER: problem received", data);
 
-					const guestPanel = vscode.window.createWebviewPanel(
-						'GuestWebview',
-						'Problem Set',
-						vscode.ViewColumn.One,
-						{
-							enableScripts : true,
-							localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
 
-						}
-					)
-					//send data to webview only when you receive ready - to eliminate the issue of html rendering delay
-					guestPanel.webview.onDidReceiveMessage((message)=>{
-						if(message.type === 'ready'){
-							guestPanel.webview.postMessage({
-								type : 'problem-updated',
-								payload : data
-							});
+					if (!guestPanel) {
+						// Create the panel only once
+						guestPanel = vscode.window.createWebviewPanel(
+							"GuestWebview",
+							"Problem Set",
+							vscode.ViewColumn.One,
+							{
+								enableScripts: true,
+								localResourceRoots: [
+									vscode.Uri.joinPath(context.extensionUri, "media")
+								]
+							}
+						);
 
-						}
-					})
-					guestPanel.webview.html =  getGuestProblemWebviewContent();
-					
+						// Clear reference when user closes the panel
+						guestPanel.onDidDispose(() => {
+							guestPanel = undefined;
+						});
 
+						// Listen for messages from the WebView
+						guestPanel.webview.onDidReceiveMessage((message) => {
+							if (message.type === "ready") {
+								guestPanel?.webview.postMessage({
+									type: "problem-updated",
+									payload: data
+								});
+							}
+						});
+
+						guestPanel.webview.html = getGuestProblemWebviewContent();
+					} else {
+						// Panel already exists → update it
+						guestPanel.webview.postMessage({
+							type: "problem-updated",
+							payload: data
+						});
+
+						// Bring existing panel to front
+						guestPanel.reveal(vscode.ViewColumn.One);
+					}
 				} )
 
 	}
