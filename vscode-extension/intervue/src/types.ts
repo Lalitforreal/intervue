@@ -1,6 +1,6 @@
 export enum Role{
-    "INTERVIEWER" ,
-    "GUEST" 
+    INTERVIEWER = "INTERVIEWER" ,
+    GUEST = "GUEST" 
 }
 export enum SessionStatus {
     PRE_START = 'PRE_START',
@@ -29,4 +29,11 @@ export interface SessionRow{
 export interface Position{
     line : number,
     character : number
+}
+
+export interface ProblemSetPayload{
+    title : string,
+    description : string,
+    constraints : string,
+    examples : string
 }

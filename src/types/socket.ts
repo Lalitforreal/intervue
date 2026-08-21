@@ -21,6 +21,7 @@ export interface ClientToServerEvents{
         line : number,
         character : number
     })=>void;
+    "problem-set" : (sessionId : string, data : ProblemSetPayload)=>void;
 };
 
 //client needs stuff back
@@ -38,6 +39,7 @@ export interface ServerToClientEvents{
     })=> void;
     "cursor_updated" : (data: { role : Role, line: number; character: number })=>void;
     "error" : (message : string) => void;
+    "problem-set-updated" : ( payload : ProblemSetPayload)=> void;
 };
 
 export interface InterServerEvents{};
@@ -58,4 +60,11 @@ export enum DisconnectedReason {
     NORMAL = 'NORMAL',
     ABANDONED = 'ABANDONED',
     EXPIRED = 'EXPIRED'
+}
+
+export interface ProblemSetPayload{
+    title : string,
+    description : string,
+    constraints : string,
+    examples : string
 }
