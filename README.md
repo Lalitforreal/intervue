@@ -1,6 +1,6 @@
 # intervue
 
-A VS Code extension for real-time technical interviews — live code sync, role-based sessions, and full session replay from an immutable event log.
+A VS Code extension for real-time technical interviews — live code sync, role-based sessions, cursor tracking, problem panel, and full session replay from an immutable event log.
 
 ## The Problem
 
@@ -12,7 +12,7 @@ Interview platforms that do offer collaborative editors treat it as a generic fe
 
 intervue treats an interview as a sequence of events, not a shared document.
 
-Every keystroke, cursor movement, and language switch is captured as an individual, timestamped event and written to an append-only log. The current state of the editor — the code, the cursor positions, the active problem — is never stored directly. It is derived by replaying the event log up to any point in time.
+Every keystroke, cursor movement, language switch, and problem statement is captured as an individual event and written to an append-only log. The current state of the editor is never stored directly — it is derived by replaying the event log up to any point in time.
 
 This means the entire interview can be reconstructed after it ends. Not just the final code, but the exact path the candidate took to get there — where they paused, what they tried first, where they backtracked.
 
@@ -24,29 +24,37 @@ Behind the scenes, each change is written to PostgreSQL as an event with a stric
 
 When the interview ends, the session can be replayed. A timeline lets you scrub back and forth through the interview, and at any point, the editor reconstructs exactly what the code, cursors, and problem statement looked like at that moment — computed live from the event log, not from a stored snapshot.
 
-## Architecture
-Core session and replay architecture designed and documented in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
+## Features
 
-### Overlook ->
+- **Live code sync** — keystrokes appear in the other person's editor in real time, both directions
+- **Cursor tracking** — the remote participant's cursor is rendered as a colored decoration directly in your editor, color-coded by role
+- **Problem panel** — the interviewer sets a problem statement from VS Code; the candidate sees it instantly in a dedicated panel, and late joiners receive it automatically
+- **Session replay** — scrub through the full interview timeline; the editor reconstructs the exact state at any sequence number from the event log
+- **Role-based sessions** — interviewer and guest have distinct permissions enforced at the socket middleware level
+- **Reconnection handling** — disconnections trigger a 30-second grace period; on reconnect, missed events are delivered by sequence number so the editor snaps back in sync
+
+## Architecture
+
+Core session and replay architecture is documented in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 
 **Backend** — Node.js, Express, TypeScript, Socket.IO. Fully typed socket event contracts using `ClientToServerEvents`, `ServerToClientEvents`, and `SocketData` generics, so payload mismatches are caught at compile time rather than at runtime.
 
-**Auth** — JWT-based authentication for interviewers via HTTP-only cookies, verified in a custom `io.use()` middleware at the socket handshake. Candidates join with a short-lived, session-scoped guest token generated on join — no signup required.
+**Auth** — JWT-based authentication for interviewers via HTTP-only cookies, verified in a custom `io.use()` middleware at the socket handshake. Candidates join with a session-scoped guest token — no signup required.
 
 **Persistence** — PostgreSQL stores two things: session metadata (who created it, its current status, when it started and ended) and the immutable event log (every action, in order, tied to a session). The event log is the source of truth for *what* happened. The sessions table is the source of truth for *who* and *when*. Neither replaces the other.
 
-**Replay engine** — A pure function that takes a session ID and a target sequence number, and returns the reconstructed editor state at that exact point in the interview. For each event type — code, cursor, language, problem — it finds the most recent occurrence at or before that sequence number. Same input always produces the same output, which makes it simple to reason about and simple to test.
+**Replay engine** — A pure function that takes a session ID and a target sequence number, and returns the reconstructed editor state at that exact point in the interview. For each event type — code, cursor, language, problem — it finds the most recent occurrence at or before that sequence number using PostgreSQL's `DISTINCT ON`. Same input always produces the same output.
 
-**Extension client** — Built on the VS Code Extension API. Uses `workspace.onDidChangeTextDocument` to capture edits and `TextEditorDecorationType` to render the other participant's cursor in a distinct color, directly inside the editor.
+**Extension client** — Built on the VS Code Extension API. Uses `workspace.onDidChangeTextDocument` to capture edits, `window.onDidChangeTextEditorSelection` for cursor tracking, `TextEditorDecorationType` to render the remote cursor, and `WebviewPanel` for the problem statement and replay UI.
 
 ## Session Lifecycle
 
-A session moves through a defined set of states rather than being a loose, always-on connection:
-
+```
 PRE_START  → session created, waiting for the candidate to join
 ONGOING    → candidate joined, interview is active
 ON_HOLD    → interviewer disconnected; session paused, not ended
-ENDED      → session concluded, either normally, by expiry, or by timeout
+ENDED      → session concluded — normally, by expiry, or by timeout
+```
 
 Disconnections are treated as a first-class scenario rather than an edge case. If a participant loses connection, the session enters a grace period instead of ending immediately. On reconnect, the client is sent every event it missed — queried by sequence number — so the event log has no gaps and the editor snaps back in sync immediately.
 
@@ -62,4 +70,4 @@ Node.js · Express · TypeScript · Socket.IO · PostgreSQL · VS Code Extension
 
 ## Status
 
-Actively in development. Core session and replay architecture designed and documented in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
+V1 in active development. Core session infrastructure, live sync, cursor tracking, and problem panel are complete. Session replay UI in progress.
