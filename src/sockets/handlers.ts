@@ -469,6 +469,25 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
             }
         })
 
+
+        socket.on("replay-max-sequence", async (sessionId : string)=>{
+            try{
+                if(!sessionId || sessionId !== socket.data.sessionId || socket.data.role === Role.GUEST){
+                    socket.emit("error","invalid session id - replaymaxSeq or wrong role");
+                    return;
+                }
+                const result = await pool.query('SELECT COALESCE(MAX(sequence_number),0) AS max_sequence FROM events WHERE session_id = $1',
+                    [sessionId]
+                );
+                const max_sequence = Number(result.rows[0].max_sequence);
+                socket.emit("max-sequence-init", max_sequence);
+
+            }catch(err){
+                socket.emit("error","catch - replaymaxSeq");
+            }
+        })
+
+        
         socket.on("replay-events", async(sessionId : string, sequenceN : number)=>{
             try{
                 const data : Partial<payload> = await replayFunc(sessionId,sequenceN,pool);
