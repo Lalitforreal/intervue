@@ -23,6 +23,7 @@ export interface ClientToServerEvents{
     })=>void;
     "problem-set" : (sessionId : string, data : ProblemSetPayload)=>void;
     "replay-max-sequence" : (sessionId : string)=> void;
+    "end-session" : (sessionId : string)=> void;
 };
 
 //client needs stuff back

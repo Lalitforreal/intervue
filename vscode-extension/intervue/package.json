@@ -31,6 +31,10 @@
       {
         "command" : "intervue.problemSet",
         "title": "Intervue : problemSet"
+      },
+      {
+        "command": "intervue.endSession",
+        "title": "Intervue : endSession"
       }
     ]
   },

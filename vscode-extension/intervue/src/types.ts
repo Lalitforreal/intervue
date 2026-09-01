@@ -37,3 +37,18 @@ export interface ProblemSetPayload{
     constraints : string,
     examples : string
 }
+
+export type ReplayPayload = {
+    code : string,
+    cursor : {
+        interviewer : {line : number, char : number},
+        guest : {line : number, char : number}
+    },
+    language : string,
+    problem :{
+        title: string
+        description: string
+        constraints: string
+        examples: string 
+    }
+}

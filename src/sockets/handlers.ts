@@ -444,6 +444,47 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
             }
         });
 
+        socket.on("end-session",async(sessionId : string)=>{
+            // console.log("end-session");
+            if(!sessionId){
+                socket.emit("error","cant end session - invalid sessionId");
+                return;
+            }
+            if(socket.data.role !== Role.INTERVIEWER || socket.data.sessionId!== sessionId){
+                socket.emit("error","cant end session -  unauthorized");
+                return;
+            }
+            //interviewer
+            const client = await pool.connect();
+            try{
+                await client.query('BEGIN');
+                const payload = {};
+                const result = await client.query('SELECT * FROM sessions WHERE id = $1', [sessionId]);
+                if (!result.rows[0]) {
+                    await client.query("ROLLBACK");
+                    socket.emit("error", "session not found");
+                    return;
+                }     
+                //no duplicate persist  
+                if(result.rows[0].status === 'ENDED'){
+                    await client.query('ROLLBACK');
+                    socket.emit("error", "session already ended");
+                    return;
+                }
+                await client.query('UPDATE sessions SET status = $1 WHERE id = $2', ['ENDED',sessionId]);
+                await persistEvent(sessionId, client, 'SESSION_ENDED', socket.data.userId as UUID, Role.INTERVIEWER, payload);
+
+                await client.query('COMMIT');
+
+                io.to(sessionId).emit("session_ended", EndedReason.NORMAL); //broadcast to everyone
+            }catch(err){
+                await client.query('ROLLBACK');
+                socket.emit("error","end-session catch");
+            }finally{
+                client.release();
+            }
+        })
+
         //interviewer only 
         socket.on("problem-set", async(sessionId : string, payload : ProblemSetPayload)=>{
             const client = await pool.connect();
@@ -490,6 +531,7 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
         
         socket.on("replay-events", async(sessionId : string, sequenceN : number)=>{
             try{
+                // console.log("replay backend");
                 const data : Partial<payload> = await replayFunc(sessionId,sequenceN,pool);
                 socket.emit("replayed-event-data", data);
             }catch(err){
