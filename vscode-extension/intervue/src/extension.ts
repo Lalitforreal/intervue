@@ -2,18 +2,22 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import { loginReq } from './auth/auth';
-import { connectSocket, emitSocket } from './sockets/connection';
+import { connectSocket, emitSocket ,currRole} from './sockets/connection';
 
 import { connectionEmitter } from './sockets/connection';
-import { Position, ProblemSetPayload, Role, SessionRow } from './types';
+import { EndedReason, Position, ProblemSetPayload, ReplayPayload, Role, SessionRow } from './types';
 import { Socket } from 'socket.io-client';
 import e from 'express';
 import { getWebviewContent } from './utils/webView';
-import { emit } from 'process';
 import { getGuestProblemWebviewContent } from './utils/guestWebView';
+import { getSessionEndedWebviewContent } from './utils/sessionEndWebView';
+import { getReplayPanel } from './utils/replayWebView';
 
 let currentSessionId : string | undefined ;
-let guestPanel: vscode.WebviewPanel | undefined
+let guestPanel: vscode.WebviewPanel | undefined;
+let endSessionPanel : vscode.WebviewPanel | undefined;
+let replayPanel : vscode.WebviewPanel | undefined;
+
 
 export function activate(context: vscode.ExtensionContext) {
 	console.log("ACTIVATE CALLED");
@@ -144,6 +148,98 @@ export function activate(context: vscode.ExtensionContext) {
 					}
 				} )
 
+				socket.on('session_ended', async (endedReason : EndedReason)=>{
+					if(currRole === Role.GUEST){
+						vscode.window.showInformationMessage("INTERVIEW ENDED.");
+					}else if(currRole === Role.INTERVIEWER){
+						//open end sesh panel
+						if(!endSessionPanel){
+							endSessionPanel = vscode.window.createWebviewPanel(
+								'intervue.sessionEnded', //identify type of webview
+								'Session Ended', //title
+								vscode.ViewColumn.One, // Editor column to show the panel in
+								{
+									enableScripts : true,
+									localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]//Restrict loading resources to specific folders for later use
+								}
+							);
+
+							
+							// clear reference when closed
+							endSessionPanel.onDidDispose(() => {
+								endSessionPanel = undefined;
+							});
+
+							endSessionPanel.webview.html = getSessionEndedWebviewContent();
+							endSessionPanel.webview.onDidReceiveMessage((message)=>{
+								if(message.type === 'replay'){
+									//create replay panel here
+									//if no panel 
+									if(!replayPanel){
+										replayPanel = vscode.window.createWebviewPanel(
+											'intervue.replayPanel', //identify type of webview
+											'Replay interview', //title
+											vscode.ViewColumn.One, // Editor column to show the panel in
+											{
+												enableScripts : true,
+												localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]//Restrict loading resources to specific folders for later use
+											}
+										)
+
+										replayPanel.webview.html = getReplayPanel();
+										// Clear reference when user closes the panel
+										replayPanel.onDidDispose(() => {
+											replayPanel = undefined;
+										});
+										replayPanel.webview.onDidReceiveMessage((message)=>{
+
+											if(message.type === 'ready'){
+												//emit to receive max seq
+												socket.emit("replay-max-sequence", currentSessionId);
+											}
+
+											if(message.type === 'sequence-change'){
+												socket.emit("replay-events", currentSessionId, Number(message.sequence));
+											}
+
+
+										})
+		
+									}else{
+										//show panel if it exists
+										replayPanel.reveal(vscode.ViewColumn.One);
+									}
+								}
+							})
+
+						}
+					}
+				});
+
+				socket.on("max-sequence-init", (max_sequence: number) => {
+					replayPanel?.webview.postMessage({
+						type: "max-sequence",
+						payload: max_sequence
+					});
+
+					// Load the state at the end of the replay initially
+					if (currentSessionId) {
+						socket.emit(
+							"replay-events",
+							currentSessionId,
+							max_sequence
+						);
+					}
+				});
+
+				socket.on("replayed-event-data", (data : Partial<ReplayPayload>)=>{
+					replayPanel?.webview.postMessage({
+						type : "replayed-state",
+						payload : data
+					})
+				})
+				
+
 	}
 	
 	const codeChanged = vscode.workspace.onDidChangeTextDocument((e :vscode.TextDocumentChangeEvent)=>{ //event emitted when any changes happen
@@ -176,10 +272,10 @@ export function activate(context: vscode.ExtensionContext) {
 
 		//no login req -> guest
 		const socket = await connectSocket(context, Role.GUEST);
-		console.log("GUEST CONNECT SOCKET RETURNED", {
-			socket: socket.id,
-			connected: socket.connected
-		});
+		// console.log("GUEST CONNECT SOCKET RETURNED", {
+		// 	socket: socket.id,
+		// 	connected: socket.connected
+		// });
 
 		socketListener(socket);
 		if (sessionId) {
@@ -301,13 +397,22 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 		})
 
+	});
+
+
+	const endSessionCommand = vscode.commands.registerCommand('intervue.endSession', async()=>{
+		if(!currentSessionId){
+			vscode.window.showErrorMessage("no session id - to end session");
+			return;
+		}
+		emitSocket("end-session", currentSessionId);
+		
 	})
 
-	context.subscriptions.push(disposable,InterviewerloginDisposable, guestLoginDisposable, codeChanged, cursorTracking, problemSetCommand);
+	context.subscriptions.push(disposable,InterviewerloginDisposable, guestLoginDisposable, codeChanged, cursorTracking, problemSetCommand, endSessionCommand);
 }
 
 
 // This method is called when your extension is deactivated
 export function deactivate() {}
-
 

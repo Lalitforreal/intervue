@@ -6,8 +6,10 @@ import { Role } from "../types";
 export const connectionEmitter = new EventEmitter();
 
 export let socket: Socket | undefined;
+export let currRole : Role | undefined;
 
 export async function connectSocket(context: ExtensionContext,role: Role): Promise<Socket> {
+        currRole = role; //use in ext for sesh end
         // Prevent duplicate connections
         if (socket?.connected) {
             console.log("REUSING EXISTING SOCKET:", socket.id);

@@ -444,6 +444,47 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
             }
         });
 
+        socket.on("end-session",async(sessionId : string)=>{
+            // console.log("end-session");
+            if(!sessionId){
+                socket.emit("error","cant end session - invalid sessionId");
+                return;
+            }
+            if(socket.data.role !== Role.INTERVIEWER || socket.data.sessionId!== sessionId){
+                socket.emit("error","cant end session -  unauthorized");
+                return;
+            }
+            //interviewer
+            const client = await pool.connect();
+            try{
+                await client.query('BEGIN');
+                const payload = {};
+                const result = await client.query('SELECT * FROM sessions WHERE id = $1', [sessionId]);
+                if (!result.rows[0]) {
+                    await client.query("ROLLBACK");
+                    socket.emit("error", "session not found");
+                    return;
+                }     
+                //no duplicate persist  
+                if(result.rows[0].status === 'ENDED'){
+                    await client.query('ROLLBACK');
+                    socket.emit("error", "session already ended");
+                    return;
+                }
+                await client.query('UPDATE sessions SET status = $1 WHERE id = $2', ['ENDED',sessionId]);
+                await persistEvent(sessionId, client, 'SESSION_ENDED', socket.data.userId as UUID, Role.INTERVIEWER, payload);
+
+                await client.query('COMMIT');
+
+                io.to(sessionId).emit("session_ended", EndedReason.NORMAL); //broadcast to everyone
+            }catch(err){
+                await client.query('ROLLBACK');
+                socket.emit("error","end-session catch");
+            }finally{
+                client.release();
+            }
+        })
+
         //interviewer only 
         socket.on("problem-set", async(sessionId : string, payload : ProblemSetPayload)=>{
             const client = await pool.connect();
@@ -469,8 +510,28 @@ export function registerSocketHandlers(io : Server< ClientToServerEvents,ServerT
             }
         })
 
+
+        socket.on("replay-max-sequence", async (sessionId : string)=>{
+            try{
+                if(!sessionId || sessionId !== socket.data.sessionId || socket.data.role === Role.GUEST){
+                    socket.emit("error","invalid session id - replaymaxSeq or wrong role");
+                    return;
+                }
+                const result = await pool.query('SELECT COALESCE(MAX(sequence_number),0) AS max_sequence FROM events WHERE session_id = $1',
+                    [sessionId]
+                );
+                const max_sequence = Number(result.rows[0].max_sequence);
+                socket.emit("max-sequence-init", max_sequence);
+
+            }catch(err){
+                socket.emit("error","catch - replaymaxSeq");
+            }
+        })
+
+        
         socket.on("replay-events", async(sessionId : string, sequenceN : number)=>{
             try{
+                // console.log("replay backend");
                 const data : Partial<payload> = await replayFunc(sessionId,sequenceN,pool);
                 socket.emit("replayed-event-data", data);
             }catch(err){

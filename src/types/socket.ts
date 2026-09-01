@@ -22,6 +22,8 @@ export interface ClientToServerEvents{
         character : number
     })=>void;
     "problem-set" : (sessionId : string, data : ProblemSetPayload)=>void;
+    "replay-max-sequence" : (sessionId : string)=> void;
+    "end-session" : (sessionId : string)=> void;
 };
 
 //client needs stuff back
@@ -40,6 +42,7 @@ export interface ServerToClientEvents{
     "cursor_updated" : (data: { role : Role, line: number; character: number })=>void;
     "error" : (message : string) => void;
     "problem-set-updated" : ( payload : ProblemSetPayload)=> void;
+    "max-sequence-init": (max_sequence : Number) => void;
 };
 
 export interface InterServerEvents{};
